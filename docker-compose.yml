@@ -1,0 +1,6 @@
+version: '3.8'
+services:
+  sinc_os:
+    build: ./services/sinc_os
+  hunter_ai:
+    build: ./services/hunter_ai
