@@ -1,0 +1,23 @@
+version: "3.9"
+services:
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+    networks:
+      - saos_internal
+  gateway:
+    build: ./services/gateway
+    networks:
+      - saos_internal
+  orchestrator:
+    build: ./services/orchestrator
+    networks:
+      - saos_internal
+networks:
+  saos_internal:
+    driver: bridge
