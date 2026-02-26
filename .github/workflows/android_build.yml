@@ -16,8 +16,10 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug --stacktrace
+      - name: Find APK Location
+        run: find . -name "*.apk"
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: CLT-Sovereign-App
-          path: app/build/outputs/apk/debug/*.apk
+          path: "**/*.apk" # بيبحث في كل المجلدات ويرفع أي apk يلاقيه
