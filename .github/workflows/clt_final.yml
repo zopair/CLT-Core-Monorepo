@@ -11,8 +11,9 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
-      - name: Build APK
+      - name: Generate and Build
         run: |
+          # تأكيد وجود ملفات التشغيل
           gradle wrapper --gradle-version 8.2
           chmod +x gradlew
           ./gradlew assembleDebug --stacktrace
