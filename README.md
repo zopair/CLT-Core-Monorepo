@@ -1,3 +1,0 @@
-# CLT Core Monorepo
-
-Status: Architecture Injected. Building APK...
