@@ -1,3 +1,13 @@
-// CLT Sovereign Build Script
-plugins { id "com.android.application" }
-android { compileSdk 34 }
+
+plugins { id 'com.android.application' version '8.2.2' }
+android {
+    namespace 'com.clt.sovereign'
+    compileSdk 34
+    defaultConfig {
+        applicationId "com.clt.sovereign"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+    }
+}
