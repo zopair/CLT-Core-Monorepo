@@ -9,24 +9,38 @@ async function sha256(value){const digest=await crypto.subtle.digest("SHA-256",n
 async function loadEvidence(){
  try{
   const response=await fetch("./data/metrics.json",{cache:"no-store"});
-  if(!response.ok)throw new Error("No CI-generated metrics are published.");
+  if(!response.ok)throw new Error("No CI-generated acceptance metrics are published.");
   const m=await response.json();
   text("status",m.status||"unknown");text("nodes",String(m.nodes??"—"));
-  text("bytes",m.file_bytes?Number(m.file_bytes).toLocaleString()+" B":"—");
+  text("bytes",m.file_bytes!=null?Number(m.file_bytes).toLocaleString()+" B":"—");
   text("elapsed",m.elapsed_seconds!=null?m.elapsed_seconds+" s":"—");
   text("evidence-log",JSON.stringify(m,null,2));
  }catch(e){text("status","NO DATA");text("evidence-log",e.message+" No measurements are fabricated.");}
 }
 function generate(){
- const profile=byId("profile").value,host=byId("host").value.trim()||"127.0.0.1";
+ const profile=byId("profile").value,rawHost=byId("host").value.trim()||"127.0.0.1";
+ const host=/^[a-zA-Z0-9.-]+$/.test(rawHost)?rawHost:"127.0.0.1";
  const port=Math.max(1024,Math.min(65535,Number(byId("port").value)||42100));
  let filename="reticulum.conf",body="";
  if(profile==="rnode")body="# RNode template; fill only device-supported and locally permitted values.\n[reticulum]\n  enable_transport = yes\n[interfaces]\n  [[RNode LoRa]]\n    type = RNodeInterface\n    enabled = no\n    port = /dev/ttyUSB0\n    frequency = <AUTHORIZED_FREQUENCY_HZ>\n    bandwidth = <SUPPORTED_BANDWIDTH_HZ>\n    txpower = <LEGAL_TX_POWER_DBM>\n";
  else if(profile==="kiss")body="# Packet radio KISS template\n[reticulum]\n  enable_transport = yes\n[interfaces]\n  [[KISS TNC]]\n    type = KISSInterface\n    enabled = no\n    port = /dev/ttyUSB0\n    speed = 9600\n";
  else if(profile==="sdr"){filename="sdr-rds-notes.txt";body="Receive-only chain: RTL-SDR -> GNU Radio/rtl_fm -> redsea -> validated RDS events. This is not a Reticulum transport or Internet uplink. No FM transmission is configured.\n";}
  else if(profile==="openwrt")body="# First configure and test 802.11s with the supported OpenWrt driver.\n[reticulum]\n  enable_transport = yes\n[interfaces]\n  [[Mesh Auto Interface]]\n    type = AutoInterface\n    enabled = yes\n    discovery_scope = link\n";
- else body="[reticulum]\n  enable_transport = yes\n  share_instance = no\n[logging]\n  loglevel = 4\n[interfaces]\n  [[Upstream TCP]]\n    type = TCPClientInterface\n    enabled = yes\n    target_host = "+host+"\n    target_port = "+port+"\n";
- generated={filename:filename,body:body};text("config",body);byId("download").disabled=false;
+ else if(profile==="yggdrasil"){
+  filename="yggdrasil.conf";
+  body="# Yggdrasil IPv6 overlay template. Yggdrasil assigns addresses in 200::/7.\n# Local multicast discovery is enabled; add trusted peers explicitly for non-LAN links.\nPeers: []\nListen: [\"tcp://0.0.0.0:0\"]\nAdminListen: none\nIfName: tun0\nMulticastInterfaces:\n  - Regex: .*\n    Beacon: true\n    Listen: true\n    Port: 0\nNodeInfoPrivacy: false\nAllowedPublicKeys: []\n";
+ }else if(profile==="ion-dtn"){
+  filename="ion_node.rc";
+  body="# ION-DTN BPv7 node bootstrap command file (review against installed ION release).\n# Set a unique node number before running. This template binds local UDP convergence-layer endpoints only.\n# Storage and forwarding are persistent; size paths and quotas for the host.\n1 1 ''\ns\na scheme ipn 'ipnadmin'\na endpoint ipn:1.1 q\na induct udp 127.0.0.1:4556\na outduct udp 127.0.0.1:4556\nw 1\nq\n# Run only after reviewing ION version-specific BPv7 and UDPCL syntax.\n";
+ }else if(profile==="mptcp"){
+  filename="mptcp_gateway.sh";
+  body="#!/usr/bin/env bash\n# Explicit operator-run MPTCP setup template. Review IFACE and LOCAL_ADDR first.\nset -euo pipefail\nIFACE=\"<NETWORK_INTERFACE>\"\nLOCAL_ADDR=\"<LOCAL_IP_ADDRESS>\"\ncommand -v ip >/dev/null\ncommand -v sysctl >/dev/null\ncommand -v systemctl >/dev/null\n[[ \"$IFACE\" != \"<NETWORK_INTERFACE>\" && \"$LOCAL_ADDR\" != \"<LOCAL_IP_ADDRESS>\" ]] || { echo 'Set IFACE and LOCAL_ADDR first' >&2; exit 2; }\nsudo sysctl -w net.mptcp.enabled=1\nsudo ip mptcp limits set subflows 4 add_addr_accepted 4\nsudo ip mptcp endpoint add \"$LOCAL_ADDR\" dev \"$IFACE\" subflow\n# mptcpd manages endpoint/path policy; confirm package and service name on this distro.\nsudo systemctl enable --now mptcpd\nsudo ip mptcp endpoint show\nsudo ip mptcp limits show\n";
+ }else if(profile==="ipfs-kubo"){
+  filename="ipfs_lowpower.sh";
+  body="#!/usr/bin/env bash\n# Low-power Kubo bootstrap. Review limits and existing service ownership before running.\nset -euo pipefail\ncommand -v ipfs >/dev/null\ncommand -v systemctl >/dev/null\nif [[ ! -d \"$HOME/.ipfs\" ]]; then ipfs init; fi\nipfs config profile apply lowpower\nipfs config --json Discovery.MDNS.Enabled true\nSLICE=/etc/systemd/system/openconnect-ipfs.slice\nsudo install -d -m 0755 /etc/systemd/system\nsudo tee \"$SLICE\" >/dev/null <<'EOF'\n[Unit]\nDescription=OPENCONNECT low-power IPFS resource slice\n[Slice]\nCPUQuota=20%\nMemoryMax=512M\nTasksMax=128\nEOF\nsudo systemctl daemon-reload\n# Run Kubo inside the bounded slice; stop with: sudo systemctl stop openconnect-ipfs.service\nsudo systemd-run --unit=openconnect-ipfs --slice=openconnect-ipfs.slice --property=Restart=on-failure ipfs daemon\n";
+ }else body="[reticulum]\n  enable_transport = yes\n  share_instance = no\n[logging]\n  loglevel = 4\n[interfaces]\n  [[Upstream TCP]]\n    type = TCPClientInterface\n    enabled = yes\n    target_host = "+host+"\n    target_port = "+port+"\n";
+ generated={filename:filename,body:body};text("config",body);
+ byId("download").disabled=false;
 }
 function download(){
  if(!generated)return;

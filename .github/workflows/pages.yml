@@ -33,14 +33,20 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
 
-      - name: Runtime smoke test (hard limit 45 seconds)
+      - name: Four-node localhost acceptance (hard limit 40 seconds)
+        id: acceptance
+        continue-on-error: true
         run: |
-          timeout 45s bash -c 'python -m py_compile src/oc_node.py src/oc_protocol.py && python src/oc_node.py --help'
+          timeout --signal=TERM --kill-after=2s 40s python tests/integration_localhost.py --metrics web/data/metrics.json
+
+      - name: Runtime compile and CLI smoke test
+        run: |
+          timeout 5s bash -c 'python -m py_compile src/oc_node.py src/oc_protocol.py tests/integration_localhost.py && python src/oc_node.py --help'
 
       - name: Configure Pages
         uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b
 
-      - name: Upload static portal
+      - name: Upload static portal and measured evidence
         uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa
         with:
           path: web
@@ -50,3 +56,11 @@ jobs:
         uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e
         with:
           timeout: 2m
+
+      - name: Enforce acceptance result
+        if: always()
+        run: |
+          if [ "${{ steps.acceptance.outcome }}" != "success" ]; then
+            echo "::error::Four-node acceptance failed; inspect web/data/metrics.json in the deployed evidence."
+            exit 1
+          fi
