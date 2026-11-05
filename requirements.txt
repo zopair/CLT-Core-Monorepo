@@ -1,0 +1,3 @@
+# Pinned upstream Git revisions; dependencies retain their own licenses.
+git+https://github.com/markqvist/Reticulum.git@e40191b3d193b46b7f2d8a44424a594cd758839b#egg=rns
+git+https://github.com/markqvist/LXMF.git@c3ff2d6dc2f256daab896dadc044dd5a913ecbb7#egg=lxmf
