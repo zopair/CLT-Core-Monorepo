@@ -1,0 +1,16 @@
+# Reticulum ConfigObj example. Bind local tests to loopback only.
+[reticulum]
+  enable_transport = yes
+  share_instance = no
+  instance_control = no
+  panic_on_interface_error = no
+
+[logging]
+  loglevel = 4
+
+[interfaces]
+  [[Local TCP listener]]
+    type = TCPServerInterface
+    enabled = yes
+    listen_ip = 127.0.0.1
+    listen_port = 42100
