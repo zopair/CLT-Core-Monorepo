@@ -28,15 +28,6 @@ def write_config(directory: Path, transport: bool, listen_port: int | None,
         "",
         "[interfaces]",
     ]
-    if upstream_port is not None:
-        lines += [
-            "  [[Upstream TCP]]",
-            "    type = TCPClientInterface",
-            "    enabled = yes",
-            "    target_host = 127.0.0.1",
-            f"    target_port = {upstream_port}",
-            "",
-        ]
     if listen_port is not None:
         lines += [
             "  [[Downstream TCP]]",
@@ -44,6 +35,15 @@ def write_config(directory: Path, transport: bool, listen_port: int | None,
             "    enabled = yes",
             "    listen_ip = 127.0.0.1",
             f"    listen_port = {listen_port}",
+            "",
+        ]
+    if upstream_port is not None:
+        lines += [
+            "  [[Upstream TCP]]",
+            "    type = TCPClientInterface",
+            "    enabled = yes",
+            "    target_host = 127.0.0.1",
+            f"    target_port = {upstream_port}",
             "",
         ]
     (directory / "config").write_text("\n".join(lines), encoding="utf-8")
@@ -59,8 +59,10 @@ def wait_ready(path: Path, process: subprocess.Popen, deadline: float) -> dict:
     raise TimeoutError("node0 did not publish its ready identity in time")
 
 
-def wait_port(port: int, deadline: float) -> None:
+def wait_port(port: int, deadline: float, process: subprocess.Popen | None = None) -> None:
     while time.monotonic() < deadline:
+        if process is not None and process.poll() is not None:
+            raise RuntimeError(f"relay for 127.0.0.1:{port} exited with code {process.returncode}")
         try:
             with socket.create_connection(("127.0.0.1", port), timeout=0.2):
                 return
@@ -105,7 +107,8 @@ def main() -> int:
                     "--data-dir", str(node_dirs[0] / "data"),
                     "--ready-file", str(ready_file),
                     "--event-log", str(event_log),
-                    "--announce-interval", "1",
+                    "--announce-interval", "2",
+                    "--announce-delay", "5",
                 ], stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
             processes.append(p0)
             identity = wait_ready(ready_file, p0, min(deadline, time.monotonic() + 8))
@@ -121,13 +124,13 @@ def main() -> int:
                         "--config-dir", str(node_dirs[index]),
                     ], stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
                 processes.append(proc)
-                wait_port(port, min(deadline, time.monotonic() + 7))
+                wait_port(port, min(deadline, time.monotonic() + 7), proc)
                 details.append({"event": "transport_relay_ready", "node": index, "port": port})
                 time.sleep(0.35)
 
             # Let the two transport relays propagate node0's periodic announce
             # across the complete chain before the edge node requests its path.
-            time.sleep(2.5)
+            time.sleep(4.0)
 
             payload = root / "acceptance-payload.bin"
             payload.write_bytes(bytes(range(256)) * 512)

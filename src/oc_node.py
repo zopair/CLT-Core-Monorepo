@@ -60,16 +60,25 @@ class OpenConnectService:
             "openconnect", "node",
         )
         self.destination.set_link_established_callback(self._link_established)
+        # Keep the LXMF delivery identity distinct from the service-link identity.
+        # Reticulum rate-limits announces per identity; sharing one identity across
+        # both destinations can suppress the LXMF announce on a fresh transport path.
+        self.lxmf_router_identity = load_or_create_identity(self.data_dir / "lxmf-router.identity")
+        self.lxmf_identity = load_or_create_identity(self.data_dir / "lxmf-delivery.identity")
         self.lxmf_router = LXMF.LXMRouter(
-            identity=self.identity, storagepath=str(self.data_dir), autopeer=False,
+            identity=self.lxmf_router_identity, storagepath=str(self.data_dir), autopeer=False,
         )
         self.lxmf_destination = self.lxmf_router.register_delivery_identity(
-            self.identity, display_name="OPENCONNECT node",
+            self.lxmf_identity, display_name="OPENCONNECT node",
         )
         self.lxmf_router.register_delivery_callback(self._lxmf_received)
 
     def _link_established(self, link) -> None:
         self.latest_link = link
+        # The peer has now discovered this node's service destination. Announce
+        # the independent LXMF delivery destination on this live transport path.
+        self.lxmf_router.announce(self.lxmf_destination.hash)
+        emit(self.event_log, {"event": "lxmf_destination_announced"})
         link.set_packet_callback(self._packet_received)
         link.set_resource_strategy(RNS.Link.ACCEPT_ALL)
         link.set_resource_concluded_callback(self._resource_received)
@@ -125,11 +134,19 @@ class OpenConnectService:
             "source_hash": message.source_hash.hex(),
         })
 
-    def announce_loop(self, interval: float) -> None:
+    def announce_loop(self, interval: float, initial_delay: float = 0.0) -> None:
+        # Give loopback transport relays time to attach before the first announce.
+        if initial_delay > 0:
+            self.stop_event.wait(initial_delay)
         while not self.stop_event.is_set():
+            # Reticulum rate-limits announces sharing one identity. Stagger the
+            # service and LXMF destinations so neither announce suppresses the other.
             self.destination.announce()
+            if self.stop_event.wait(interval):
+                break
             self.lxmf_router.announce(self.lxmf_destination.hash)
-            self.stop_event.wait(interval)
+            if self.stop_event.wait(interval):
+                break
 
 
 def write_ready(path: str, destination_hash: str, lxmf_hash: str) -> None:
@@ -153,7 +170,7 @@ def serve(args) -> int:
         "lxmf_hash": service.lxmf_destination.hash.hex(),
     })
     threading.Thread(
-        target=service.announce_loop, args=(args.announce_interval,), daemon=True,
+        target=service.announce_loop, args=(args.announce_interval, args.announce_delay), daemon=True,
     ).start()
     try:
         while True:
@@ -258,7 +275,7 @@ def probe(args) -> int:
         lxmf_router.identity, display_name="OPENCONNECT test node",
     )
     lxmf_hash = bytes.fromhex(args.lxmf_destination)
-    if not wait_for_path(lxmf_hash, args.timeout):
+    if not wait_for_path(lxmf_hash, args.lxmf_path_timeout):
         raise TimeoutError("No path to LXMF recipient")
     recipient_identity = RNS.Identity.recall(lxmf_hash)
     if recipient_identity is None:
@@ -300,6 +317,7 @@ def build_parser():
     server.add_argument("--ready-file", required=True)
     server.add_argument("--event-log")
     server.add_argument("--announce-interval", type=float, default=2.0)
+    server.add_argument("--announce-delay", type=float, default=0.0)
     server.set_defaults(func=serve)
 
     relay_parser = sub.add_parser("relay", help="Run a Reticulum transport relay")
@@ -315,6 +333,7 @@ def build_parser():
     client.add_argument("--file", required=True)
     client.add_argument("--timeout", type=float, default=20.0)
     client.add_argument("--lxmf-timeout", type=float, default=12.0)
+    client.add_argument("--lxmf-path-timeout", type=float, default=12.0)
     client.set_defaults(func=probe)
     return parser
 

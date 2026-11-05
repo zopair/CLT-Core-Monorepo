@@ -9,13 +9,28 @@ async function sha256(value){const digest=await crypto.subtle.digest("SHA-256",n
 async function loadEvidence(){
  try{
   const response=await fetch("./data/metrics.json",{cache:"no-store"});
-  if(!response.ok)throw new Error("No CI-generated acceptance metrics are published.");
-  const m=await response.json();
-  text("status",m.status||"unknown");text("nodes",String(m.nodes??"—"));
-  text("bytes",m.file_bytes!=null?Number(m.file_bytes).toLocaleString()+" B":"—");
+  if(!response.ok)throw new Error("No CI-generated multi-layer acceptance metrics are published.");
+  const m=await response.json(),c=m.checks||{},r=m.reticulum_lxmf||{},y=m.yggdrasil||{},k=m.ipfs_kubo||{},p=m.mptcp||{},f=m.reticulum_failover||{};
+  text("status",m.status||"FAIL");
+  text("nodes",String(r.nodes??"—"));
+  text("bytes",r.file_bytes!=null?Number(r.file_bytes).toLocaleString()+" B":"—");
   text("elapsed",m.elapsed_seconds!=null?m.elapsed_seconds+" s":"—");
+  text("layer-reticulum",c.reticulum_lxmf?"PASS":"FAIL");
+  text("detail-reticulum",c.reticulum_lxmf?"4-node encrypted message · file · LXMF":"One or more Reticulum/LXMF checks failed");
+  text("layer-yggdrasil",c.yggdrasil?"PASS":"FAIL");
+  text("detail-yggdrasil",Array.isArray(y.addresses)?y.addresses.join(" · "):(y.error||"No peer verification"));
+  text("layer-ipfs",c.ipfs_kubo?"PASS":"FAIL");
+  text("detail-ipfs",k.cid?("CID "+k.cid): (k.error||"No replication proof"));
+  text("layer-mptcp",c.mptcp?"PASS":"FAIL");
+  text("detail-mptcp",p.rtt_ms!=null?("RTT "+p.rtt_ms+" ms · "+(p.payload_bytes||0)+" B"): (p.error||"No MPTCP socket proof"));
+  text("failover-status","Reticulum relay failover: "+(f.failover_verified?"PASS":"FAIL"));
   text("evidence-log",JSON.stringify(m,null,2));
- }catch(e){text("status","NO DATA");text("evidence-log",e.message+" No measurements are fabricated.");}
+ }catch(e){
+  text("status","NO DATA");text("evidence-log",e.message+" No measurements are fabricated.");
+  ["nodes","bytes","elapsed","layer-reticulum","layer-yggdrasil","layer-ipfs","layer-mptcp"].forEach((id)=>text(id,"—"));
+  ["detail-reticulum","detail-yggdrasil","detail-ipfs","detail-mptcp"].forEach((id)=>text(id,"Awaiting CI evidence"));
+  text("failover-status","Reticulum relay failover: awaiting evidence.");
+ }
 }
 function generate(){
  const profile=byId("profile").value,rawHost=byId("host").value.trim()||"127.0.0.1";

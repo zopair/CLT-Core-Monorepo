@@ -18,7 +18,7 @@ concurrency:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 7
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -33,20 +33,39 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
 
-      - name: Four-node localhost acceptance (hard limit 40 seconds)
+      - name: Fetch and verify upstream Yggdrasil and Kubo binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .tools/ygg .tools/kubo
+          curl --fail --location --retry 2 --output /tmp/yggdrasil.deb \
+            https://github.com/yggdrasil-network/yggdrasil-go/releases/download/v0.5.15/yggdrasil-0.5.15-amd64.deb
+          echo "3ac9e3cdffe3d56d70097d6c94b93ed11ed3688700b49f8f678b7dadb5fcb04a  /tmp/yggdrasil.deb" | sha256sum --check
+          dpkg-deb --extract /tmp/yggdrasil.deb .tools/ygg
+          curl --fail --location --retry 2 --output /tmp/kubo.tar.gz \
+            https://github.com/ipfs/kubo/releases/download/v0.43.1/kubo_v0.43.1_linux-amd64.tar.gz
+          echo "3f2bf974ab2a3ec6d997fac7d8cb46f59983a7cddd0b55ef998e6ce379155fb2  /tmp/kubo.tar.gz" | sha256sum --check
+          tar -xzf /tmp/kubo.tar.gz -C .tools/kubo
+          echo "YGGDRASIL_BIN=$PWD/.tools/ygg/usr/bin/yggdrasil" >> "$GITHUB_ENV"
+          echo "YGGDRASILCTL_BIN=$PWD/.tools/ygg/usr/bin/yggdrasilctl" >> "$GITHUB_ENV"
+          echo "IPFS_BIN=$PWD/.tools/kubo/kubo/ipfs" >> "$GITHUB_ENV"
+          "$PWD/.tools/ygg/usr/bin/yggdrasil" --version
+          "$PWD/.tools/kubo/kubo/ipfs" version
+
+      - name: Multi-layer localhost acceptance (hard limit 50 seconds)
         id: acceptance
         continue-on-error: true
         run: |
-          timeout --signal=TERM --kill-after=2s 40s python tests/integration_localhost.py --metrics web/data/metrics.json
+          timeout --signal=TERM --kill-after=2s 50s python tests/multilayer_acceptance.py
 
       - name: Runtime compile and CLI smoke test
         run: |
-          timeout 5s bash -c 'python -m py_compile src/oc_node.py src/oc_protocol.py tests/integration_localhost.py && python src/oc_node.py --help'
+          timeout 5s bash -c 'python -m py_compile src/oc_node.py src/oc_protocol.py tests/integration_localhost.py tests/multilayer_acceptance.py && python src/oc_node.py --help'
 
       - name: Configure Pages
         uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b
 
-      - name: Upload static portal and measured evidence
+      - name: Upload portal and measured multi-layer evidence
         uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa
         with:
           path: web
@@ -57,10 +76,10 @@ jobs:
         with:
           timeout: 2m
 
-      - name: Enforce acceptance result
+      - name: Enforce every acceptance check
         if: always()
         run: |
           if [ "${{ steps.acceptance.outcome }}" != "success" ]; then
-            echo "::error::Four-node acceptance failed; inspect web/data/metrics.json in the deployed evidence."
+            echo "::error::One or more multi-layer localhost acceptance tests failed. Inspect web/data/metrics.json and the test logs."
             exit 1
           fi
