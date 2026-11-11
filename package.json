@@ -1,0 +1,18 @@
+{
+  "name": "clt-github-mcp",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Read-only GitHub MCP tools for the CLT engineering workspace and GitHub Copilot.",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "bin": { "clt-github-mcp": "./src/server.js" },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test",
+    "check": "node --check src/github-api.js && node --check src/server.js && node --test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "zod": "^3.25.76"
+  }
+}
